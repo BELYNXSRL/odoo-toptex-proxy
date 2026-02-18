@@ -6,6 +6,7 @@ import requests
 import logging
 import time
 from functools import wraps
+from datetime import datetime, timedelta
 
 # Configuration du logging
 logging.basicConfig(level=logging.INFO)
@@ -16,6 +17,53 @@ app = FastAPI(title="Odoo-TopTex Proxy", version="1.0.0")
 TOPTEX_API_KEY = os.getenv("TOPTEX_API_KEY")
 TOPTEX_BASE_URL = os.getenv("TOPTEX_BASE_URL", "https://api.toptex.io/v3")
 WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET")
+
+# =============================================================================
+# Gestion de l'authentification TopTex
+# =============================================================================
+
+class AuthenticationManager:
+    """Gestionnaire d'authentification avec cache du token"""
+    def __init__(self):
+        self.token = None
+        self.token_expiry = None
+    
+    def is_token_valid(self) -> bool:
+        """Vérifie si le token est valide et non expiré"""
+        if self.token is None or self.token_expiry is None:
+            return False
+        return datetime.now() < self.token_expiry
+    
+    def authenticate(self) -> str:
+        """S'authentifie auprès de TopTex et retourne le token"""
+        try:
+            logger.info("🔐 Authentification auprès de TopTex...")
+            response = requests.post(
+                f"{TOPTEX_BASE_URL}/authenticate",
+                json={"api_key": TOPTEX_API_KEY},
+                timeout=30
+            )
+            response.raise_for_status()
+            data = response.json()
+            
+            self.token = data.get("token")
+            # Assume le token expire dans 24h (à adapter selon la doc TopTex)
+            self.token_expiry = datetime.now() + timedelta(hours=24)
+            
+            logger.info(f"✓ Authentification réussie. Token valide jusqu'à {self.token_expiry}")
+            return self.token
+        except requests.exceptions.RequestException as e:
+            logger.error(f"✗ Erreur d'authentification: {str(e)}")
+            raise HTTPException(status_code=503, detail=f"Authentication failed: {str(e)}")
+    
+    def get_token(self) -> str:
+        """Retourne un token valide, en authentifiant si nécessaire"""
+        if not self.is_token_valid():
+            return self.authenticate()
+        return self.token
+
+# Instance globale du gestionnaire d'authentification
+auth_manager = AuthenticationManager()
 
 # =============================================================================
 # Models Pydantic
@@ -70,9 +118,10 @@ def retry_with_backoff(max_retries=3, backoff_factor=1):
     return decorator
 
 def get_toptex_headers():
-    """Retourne les headers nécessaires pour les requêtes TopTex"""
+    """Retourne les headers nécessaires pour les requêtes TopTex avec token d'authentification"""
+    token = auth_manager.get_token()
     return {
-        "Authorization": f"Bearer {TOPTEX_API_KEY}",
+        "Authorization": f"Bearer {token}",
         "Content-Type": "application/json",
     }
 
@@ -422,6 +471,24 @@ async def from_odoo(req: Request):
         raise HTTPException(status_code=400, detail=f"Error processing webhook: {str(e)}")
 
 # =============================================================================
+# AUTHENTICATION - Endpoint
+# =============================================================================
+
+@app.get("/auth")
+async def auth_status():
+    """Vérifie l'état de l'authentification TopTex"""
+    try:
+        token = auth_manager.get_token()
+        return {
+            "status": "authenticated",
+            "token_valid": auth_manager.is_token_valid(),
+            "token_expiry": auth_manager.token_expiry.isoformat() if auth_manager.token_expiry else None
+        }
+    except Exception as e:
+        logger.error(f"✗ Erreur d'authentification: {str(e)}")
+        raise HTTPException(status_code=503, detail=f"Authentication error: {str(e)}")
+
+# =============================================================================
 # HEALTH CHECK - Endpoint
 # =============================================================================
 
@@ -457,6 +524,21 @@ async def root():
             "orders": "/orders (GET, POST)",
             "customers": "/customers (GET, POST)",
             "webhooks": "/odoo (POST)",
+            "authentication": "/auth (GET)",
             "health": "/health (GET)"
         }
     }
+
+# =============================================================================
+# STARTUP EVENT - Authentification automatique
+# =============================================================================
+
+@app.on_event("startup")
+async def startup_event():
+    """S'authentifie automatiquement auprès de TopTex au démarrage"""
+    try:
+        token = auth_manager.get_token()
+        logger.info("✓ API démarrée et authentifiée auprès de TopTex")
+    except Exception as e:
+        logger.warning(f"⚠ Attention: Impossible de s'authentifier au démarrage: {str(e)}")
+        logger.info("  L'authentification sera tentée lors du premier appel API")
