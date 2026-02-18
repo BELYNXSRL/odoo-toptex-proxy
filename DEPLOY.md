@@ -52,7 +52,7 @@ Allez dans l'onglet **"Environment"** et ajoutez :
 
 ```
 TOPTEX_API_KEY=your_api_key_here
-TOPTEX_BASE_URL=https://api.toptex.com/v1
+TOPTEX_BASE_URL=https://api.toptex.io/v3
 WEBHOOK_SECRET=your_webhook_secret_here
 ```
 
@@ -61,6 +61,11 @@ WEBHOOK_SECRET=your_webhook_secret_here
 Cliquez sur **"Create Web Service"**. Render déploiera automatiquement votre API.
 
 ## Endpoints disponibles
+
+### Authentification
+- `GET /auth` - Vérifier l'état de l'authentification TopTex (retourne le token et sa date d'expiration)
+
+**Fonctionnement automatique** : L'API s'authentifie automatiquement auprès de TopTex via l'endpoint `/authenticate` au démarrage et met en cache le token. Le token est automatiquement rafraîchi quand nécessaire.
 
 ### Produits
 - `GET /products` - Lister tous les produits
@@ -87,6 +92,7 @@ Cliquez sur **"Create Web Service"**. Render déploiera automatiquement votre AP
 - `POST /odoo` - Recevoir et traiter les webhooks Odoo
 
 ### Utilitaires
+- `GET /auth` - Vérifier l'état de l'authentification TopTex
 - `GET /health` - Vérifier la connexion à TopTex
 - `GET /` - Info sur l'API
 
