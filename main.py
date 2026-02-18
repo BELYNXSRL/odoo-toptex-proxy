@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 app = FastAPI(title="Odoo-TopTex Proxy", version="1.0.0")
 
 TOPTEX_API_KEY = os.getenv("TOPTEX_API_KEY")
-TOPTEX_BASE_URL = os.getenv("TOPTEX_BASE_URL", "https://api.toptex.com/v1")
+TOPTEX_BASE_URL = os.getenv("TOPTEX_BASE_URL", "https://api.toptex.io/v3")
 WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET")
 
 # =============================================================================
